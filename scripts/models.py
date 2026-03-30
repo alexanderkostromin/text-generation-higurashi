@@ -95,7 +95,7 @@ class HandmadeLSTM(nn.Module):
 
 
 class HandmadeCasualAttention(nn.Module):
-    def __init__(self, d_in, d_out, context_length):
+    def __init__(self, d_in, d_out, context_length, dropout=0.5):
         super().__init__()
         self.d_in = d_in
         self.d_out = d_out
@@ -115,6 +115,8 @@ class HandmadeCasualAttention(nn.Module):
         self.register_buffer('mask',
                              torch.triu(torch.ones(context_length, context_length), diagonal=1))
 
+        self.dropout = nn.Dropout(dropout)
+
     def forward(self, x):
         batch_size, seq_len, d_in = x.size()
 
@@ -126,6 +128,7 @@ class HandmadeCasualAttention(nn.Module):
         attn_scores.masked_fill_(self.mask.bool()[:seq_len, :seq_len], float('-inf'))
 
         attn_weights = torch.softmax(attn_scores / self.d_out**0.5, dim=-1)
+        attn_weights = self.dropout(attn_weights)
 
         context_vec = attn_weights @ values     # [B, S, S] @ [B, S, d_out] = [B, S, d_out]
 
@@ -133,10 +136,13 @@ class HandmadeCasualAttention(nn.Module):
 
 
 class HandmadeMutiHeadAttention(nn.Module):
-    def __init__(self, d_in, d_out, context_length, num_heads):
+    def __init__(self, d_in, d_out, context_length, num_heads, dropout=0.5):
         super().__init__()
         self.heads = nn.ModuleList(
-            [HandmadeCasualAttention(d_in, d_out, context_length) for _ in range(num_heads)]
+            [HandmadeCasualAttention(d_in,
+                                     d_out,
+                                     context_length,
+                                     dropout) for _ in range(num_heads)]
         )
         self.out_projection = nn.Parameter(torch.empty(d_out * num_heads, d_in))
         self.bout = nn.Parameter(torch.zeros(d_in))
