@@ -1,7 +1,7 @@
 import torch
 import pytest
 from scripts.models import (HandmadeRNN, HandmadeLSTM, HandmadeCasualAttention,
-HandmadeMutiHeadAttention)
+                            HandmadeMutiHeadAttention, HandmadeLayerNorm)
 
 
 @pytest.mark.parametrize('vocab_size, hidden_size, emb_dim, batch_size, seq_len', [
@@ -47,3 +47,21 @@ def test_handmademha(d_in, d_out, context_len, seq_len, batch_size, num_heads):
     x = torch.randint(0, 100, (batch_size, seq_len, d_in)).float()
     context_vec = mha(x)
     assert context_vec.shape == (batch_size, seq_len, d_in)
+
+
+@pytest.mark.parametrize('batch_size, seq_len, emb_dim, mean, var', [
+    (2, 10, 128, 50, 10)
+])
+def test_handmadeln(batch_size, seq_len, emb_dim, mean, var):
+    ln = HandmadeLayerNorm(emb_dim)
+    x = torch.randn(batch_size, seq_len, emb_dim) * var + mean
+    norm_x = ln(x)
+
+    assert norm_x.shape == (batch_size, seq_len, emb_dim)
+
+    mean = norm_x.mean(dim=-1)
+    var = norm_x.var(dim=-1, unbiased=False)
+
+    assert torch.allclose(mean, torch.zeros_like(mean), atol=1e-5)
+
+    assert torch.allclose(var, torch.ones_like(var), atol=1e-5)
