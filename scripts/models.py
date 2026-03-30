@@ -222,3 +222,43 @@ class HandmadeFeedForward(nn.Module):
             x += self.b2
 
         return x
+
+
+class HandmadeTrfDecBlock(nn.Module):
+    def __init__(self,
+                 d_in,
+                 context_length,
+                 num_heads,
+                 dropout_mha=0.5,
+                 dropout=0.5,
+                 bias=False,
+                 expansion_coef=4):
+        super().__init__()
+        if d_in % num_heads != 0:
+            raise ValueError(f'd_in ({d_in}) должен делится на num_heads({num_heads}) без остатка')
+        d_head = d_in // num_heads
+        self.mha = HandmadeMutiHeadAttention(d_in,
+                                             d_head,
+                                             context_length,
+                                             num_heads,
+                                             dropout_mha,
+                                             bias)
+        self.ff = HandmadeFeedForward(d_in, expansion_coef, bias)
+        self.norm1 = HandmadeLayerNorm(d_in)
+        self.norm2 = HandmadeLayerNorm(d_in)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x):
+        shortcut = x
+        x = self.norm1(x)
+        x = self.mha(x)
+        x = self.dropout(x)
+        x = x + shortcut
+
+        shortcut = x
+        x = self.norm2(x)
+        x = self.ff(x)
+        x = self.dropout(x)
+        x = x + shortcut
+
+        return x

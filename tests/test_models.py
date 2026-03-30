@@ -1,7 +1,8 @@
 import torch
 import pytest
 from scripts.models import (HandmadeRNN, HandmadeLSTM, HandmadeCasualAttention,
-                            HandmadeMutiHeadAttention, HandmadeLayerNorm, HandmadeFeedForward)
+                            HandmadeMutiHeadAttention, HandmadeLayerNorm, HandmadeFeedForward,
+                            HandmadeTrfDecBlock)
 
 
 @pytest.mark.parametrize('vocab_size, hidden_size, emb_dim, batch_size, seq_len', [
@@ -75,3 +76,24 @@ def test_handmadeff(batch_size, seq_len, d_in):
     x = torch.randn(batch_size, seq_len, d_in)
     res = ff(x)
     assert res.shape == (batch_size, seq_len, d_in)
+
+
+@pytest.mark.parametrize('batch_size, seq_len, d_in, context_len, num_heads, bias', [
+    (2, 100, 10, 150, 5, False)
+])
+def test_handmadetrfdecblc(batch_size, seq_len, d_in, context_len, num_heads, bias):
+    decblock = HandmadeTrfDecBlock(d_in, context_len, num_heads, bias=bias)
+    x = torch.randn((batch_size, seq_len, d_in))
+    output = decblock(x)
+
+    assert output.shape == x.shape
+
+
+def test_handmadetrfdecblc_invalid_dims():
+    d_in = 10
+    num_heads = 3
+
+    with pytest.raises(ValueError) as excinfo:
+        HandmadeTrfDecBlock(d_in=d_in, context_length=150, num_heads=num_heads)
+
+    assert f"d_in ({d_in}) должен делится на num_heads({num_heads})" in str(excinfo.value)
