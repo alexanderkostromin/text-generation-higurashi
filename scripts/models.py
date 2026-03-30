@@ -80,7 +80,7 @@ class HandmadeLSTM(nn.Module):
             i = torch.sigmoid(i_gate)    # Input gate
             f = torch.sigmoid(f_gate)    # Forget gate
             o = torch.sigmoid(o_gate)    # Output gate
-            g = torch.tanh(g_gate)       # cell state
+            g = torch.tanh(g_gate)       # Cell state
 
             c_t = f * c_t + i * g
 
@@ -92,3 +92,41 @@ class HandmadeLSTM(nn.Module):
         logits = full_output @ self.Why + self.by
 
         return logits, (h_t, c_t)
+
+
+class HandmadeCasualAttention(nn.Module):
+    def __init__(self, d_in, d_out, context_length):
+        super().__init__()
+        self.d_in = d_in
+        self.d_out = d_out
+        self.context_length = context_length
+
+        self.Wq = nn.Parameter(torch.empty(d_in, d_out))
+        self.Wk = nn.Parameter(torch.empty(d_in, d_out))
+        self.Wv = nn.Parameter(torch.empty(d_in, d_out))
+        nn.init.xavier_uniform_(self.Wq)
+        nn.init.xavier_uniform_(self.Wk)
+        nn.init.xavier_uniform_(self.Wv)
+
+        self.bq = nn.Parameter(torch.zeros(d_out))
+        self.bk = nn.Parameter(torch.zeros(d_out))
+        self.bv = nn.Parameter(torch.zeros(d_out))
+
+        self.register_buffer('mask',
+                             torch.triu(torch.ones(context_length, context_length), diagonal=1))
+
+    def forward(self, x):
+        batch_size, seq_len, d_in = x.size()
+
+        queries = x @ self.Wq + self.bq     # [B, S, d_in] @ [d_in, d_out] = [B, S, d_out]
+        keys = x @ self.Wk + self.bk        # [B, S, d_in] @ [d_in, d_out] = [B, S, d_out]
+        values = x @ self.Wv + self.bv      # [B, S, d_in] @ [d_in, d_out] = [B, S, d_out]
+
+        attn_scores = queries @ keys.transpose(1, 2)    # [B, S, d_out] @ [B, d_out, S] = [B, S, S]
+        attn_scores.masked_fill_(self.mask.bool()[:seq_len, :seq_len], float('-inf'))
+
+        attn_weights = torch.softmax(attn_scores / self.d_out**0.5, dim=-1)
+
+        context_vec = attn_weights @ values     # [B, S, S] @ [B, S, d_out] = [B, S, d_out]
+
+        return context_vec

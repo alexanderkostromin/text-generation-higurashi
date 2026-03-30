@@ -1,6 +1,6 @@
 import torch
 import pytest
-from scripts.models import HandmadeRNN, HandmadeLSTM
+from scripts.models import HandmadeRNN, HandmadeLSTM, HandmadeCasualAttention
 
 
 @pytest.mark.parametrize('vocab_size, hidden_size, emb_dim, batch_size, seq_len', [
@@ -26,3 +26,13 @@ def test_handmadelstm(vocab_size, hidden_size, emb_dim, batch_size, seq_len):
     assert last_h.shape == (batch_size, hidden_size)
     assert last_c.shape == (batch_size, hidden_size)
     assert not torch.isnan(logits).any()
+
+
+@pytest.mark.parametrize('d_in, d_out, context_len, seq_len, batch_size', [
+    (3, 2, 12, 10, 2)
+])
+def test_handmadeca(d_in, d_out, context_len, seq_len, batch_size):
+    ca = HandmadeCasualAttention(d_in, d_out, context_len)
+    x = torch.randint(0, 100, (batch_size, seq_len, d_in)).float()
+    context_vec = ca(x)
+    assert context_vec.shape == (batch_size, seq_len, d_out)
