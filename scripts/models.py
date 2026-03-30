@@ -162,3 +162,27 @@ class HandmadeLayerNorm(nn.Module):
         var = x.var(dim=-1, keepdim=True, unbiased=False)
         norm_x = (x - mean) / torch.sqrt(var + self.eps)
         return self.scale * norm_x + self.shift
+
+
+class HandmadeFeedForward(nn.Module):
+    def __init__(self, d_in, expansion_coef=4):
+        super().__init__()
+        d_ff = d_in * expansion_coef
+
+        self.W1 = nn.Parameter(torch.empty(d_in, d_ff))
+        self.W2 = nn.Parameter(torch.empty(d_ff, d_in))
+        nn.init.xavier_uniform_(self.W1)
+        nn.init.xavier_uniform_(self.W2)
+
+        self.b1 = nn.Parameter(torch.zeros(d_ff))
+        self.b2 = nn.Parameter(torch.zeros(d_in))
+
+        self.gelu = nn.GELU()
+
+    def forward(self, x):
+        x = x @ self.W1 + self.b1   # [B, S, d_in] @ [d_in, d_ff] = [B, S, d_ff]
+        x = self.gelu(x)
+
+        x = x @ self.W2 + self.b2   # [B, S, d_ff] @ [d_ff, d_in] = [B, S, d_in]
+
+        return x

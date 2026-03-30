@@ -1,7 +1,7 @@
 import torch
 import pytest
 from scripts.models import (HandmadeRNN, HandmadeLSTM, HandmadeCasualAttention,
-                            HandmadeMutiHeadAttention, HandmadeLayerNorm)
+                            HandmadeMutiHeadAttention, HandmadeLayerNorm, HandmadeFeedForward)
 
 
 @pytest.mark.parametrize('vocab_size, hidden_size, emb_dim, batch_size, seq_len', [
@@ -65,3 +65,13 @@ def test_handmadeln(batch_size, seq_len, emb_dim, mean, var):
     assert torch.allclose(mean, torch.zeros_like(mean), atol=1e-5)
 
     assert torch.allclose(var, torch.ones_like(var), atol=1e-5)
+
+
+@pytest.mark.parametrize('batch_size, seq_len, d_in', [
+    (2, 10, 5)
+])
+def test_handmadeff(batch_size, seq_len, d_in):
+    ff = HandmadeFeedForward(d_in)
+    x = torch.randn(batch_size, seq_len, d_in)
+    res = ff(x)
+    assert res.shape == (batch_size, seq_len, d_in)
