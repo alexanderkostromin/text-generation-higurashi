@@ -1,6 +1,7 @@
 import torch
 import pytest
-from scripts.models import HandmadeRNN, HandmadeLSTM, HandmadeCasualAttention
+from scripts.models import (HandmadeRNN, HandmadeLSTM, HandmadeCasualAttention,
+HandmadeMutiHeadAttention)
 
 
 @pytest.mark.parametrize('vocab_size, hidden_size, emb_dim, batch_size, seq_len', [
@@ -36,3 +37,13 @@ def test_handmadeca(d_in, d_out, context_len, seq_len, batch_size):
     x = torch.randint(0, 100, (batch_size, seq_len, d_in)).float()
     context_vec = ca(x)
     assert context_vec.shape == (batch_size, seq_len, d_out)
+
+
+@pytest.mark.parametrize('d_in, d_out, context_len, seq_len, batch_size, num_heads', [
+    (3, 2, 12, 10, 2, 5)
+])
+def test_handmademha(d_in, d_out, context_len, seq_len, batch_size, num_heads):
+    mha = HandmadeMutiHeadAttention(d_in, d_out, context_len, num_heads)
+    x = torch.randint(0, 100, (batch_size, seq_len, d_in)).float()
+    context_vec = mha(x)
+    assert context_vec.shape == (batch_size, seq_len, d_in)

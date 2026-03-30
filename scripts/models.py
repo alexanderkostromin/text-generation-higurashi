@@ -130,3 +130,21 @@ class HandmadeCasualAttention(nn.Module):
         context_vec = attn_weights @ values     # [B, S, S] @ [B, S, d_out] = [B, S, d_out]
 
         return context_vec
+
+
+class HandmadeMutiHeadAttention(nn.Module):
+    def __init__(self, d_in, d_out, context_length, num_heads):
+        super().__init__()
+        self.heads = nn.ModuleList(
+            [HandmadeCasualAttention(d_in, d_out, context_length) for _ in range(num_heads)]
+        )
+        self.out_projection = nn.Parameter(torch.empty(d_out * num_heads, d_in))
+        self.bout = nn.Parameter(torch.zeros(d_in))
+        nn.init.xavier_uniform_(self.out_projection)
+
+    def forward(self, x):
+        combined = torch.cat([head(x) for head in self.heads], dim=-1)  # [B, S, d_out * num_heads]
+
+        # [B, S, d_out * num_heads] @ [d_out * num_heads, d_in] = [B, S, d_in]
+        context_vec = combined @ self.out_projection + self.bout
+        return context_vec
