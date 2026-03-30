@@ -95,11 +95,12 @@ class HandmadeLSTM(nn.Module):
 
 
 class HandmadeCasualAttention(nn.Module):
-    def __init__(self, d_in, d_out, context_length, dropout=0.5):
+    def __init__(self, d_in, d_out, context_length, dropout=0.5, bias=True):
         super().__init__()
         self.d_in = d_in
         self.d_out = d_out
         self.context_length = context_length
+        self.use_bias = bias
 
         self.Wq = nn.Parameter(torch.empty(d_in, d_out))
         self.Wk = nn.Parameter(torch.empty(d_in, d_out))
@@ -108,9 +109,14 @@ class HandmadeCasualAttention(nn.Module):
         nn.init.xavier_uniform_(self.Wk)
         nn.init.xavier_uniform_(self.Wv)
 
-        self.bq = nn.Parameter(torch.zeros(d_out))
-        self.bk = nn.Parameter(torch.zeros(d_out))
-        self.bv = nn.Parameter(torch.zeros(d_out))
+        if bias:
+            self.bq = nn.Parameter(torch.zeros(d_out))
+            self.bk = nn.Parameter(torch.zeros(d_out))
+            self.bv = nn.Parameter(torch.zeros(d_out))
+        else:
+            self.register_parameter('bq', None)
+            self.register_parameter('bk', None)
+            self.register_parameter('bv', None)
 
         self.register_buffer('mask',
                              torch.triu(torch.ones(context_length, context_length), diagonal=1))
@@ -120,9 +126,14 @@ class HandmadeCasualAttention(nn.Module):
     def forward(self, x):
         batch_size, seq_len, d_in = x.size()
 
-        queries = x @ self.Wq + self.bq     # [B, S, d_in] @ [d_in, d_out] = [B, S, d_out]
-        keys = x @ self.Wk + self.bk        # [B, S, d_in] @ [d_in, d_out] = [B, S, d_out]
-        values = x @ self.Wv + self.bv      # [B, S, d_in] @ [d_in, d_out] = [B, S, d_out]
+        queries = x @ self.Wq     # [B, S, d_in] @ [d_in, d_out] = [B, S, d_out]
+        keys = x @ self.Wk        # [B, S, d_in] @ [d_in, d_out] = [B, S, d_out]
+        values = x @ self.Wv      # [B, S, d_in] @ [d_in, d_out] = [B, S, d_out]
+
+        if self.use_bias:
+            queries += self.bq
+            keys += self.bk
+            values += self.bv
 
         attn_scores = queries @ keys.transpose(1, 2)    # [B, S, d_out] @ [B, d_out, S] = [B, S, S]
         attn_scores.masked_fill_(self.mask.bool()[:seq_len, :seq_len], float('-inf'))
@@ -136,23 +147,33 @@ class HandmadeCasualAttention(nn.Module):
 
 
 class HandmadeMutiHeadAttention(nn.Module):
-    def __init__(self, d_in, d_out, context_length, num_heads, dropout=0.5):
+    def __init__(self, d_in, d_out, context_length, num_heads, dropout=0.5, bias=True):
         super().__init__()
         self.heads = nn.ModuleList(
             [HandmadeCasualAttention(d_in,
                                      d_out,
                                      context_length,
-                                     dropout) for _ in range(num_heads)]
+                                     dropout,
+                                     bias=bias) for _ in range(num_heads)]
         )
         self.out_projection = nn.Parameter(torch.empty(d_out * num_heads, d_in))
-        self.bout = nn.Parameter(torch.zeros(d_in))
+
         nn.init.xavier_uniform_(self.out_projection)
+
+        self.use_bias = bias
+        if bias:
+            self.bout = nn.Parameter(torch.zeros(d_in))
+        else:
+            self.register_parameter('bout', None)
 
     def forward(self, x):
         combined = torch.cat([head(x) for head in self.heads], dim=-1)  # [B, S, d_out * num_heads]
 
         # [B, S, d_out * num_heads] @ [d_out * num_heads, d_in] = [B, S, d_in]
-        context_vec = combined @ self.out_projection + self.bout
+
+        context_vec = combined @ self.out_projection
+        if self.use_bias:
+            context_vec += self.bout
         return context_vec
 
 
@@ -171,7 +192,7 @@ class HandmadeLayerNorm(nn.Module):
 
 
 class HandmadeFeedForward(nn.Module):
-    def __init__(self, d_in, expansion_coef=4):
+    def __init__(self, d_in, expansion_coef=4, bias=True):
         super().__init__()
         d_ff = d_in * expansion_coef
 
@@ -180,15 +201,24 @@ class HandmadeFeedForward(nn.Module):
         nn.init.xavier_uniform_(self.W1)
         nn.init.xavier_uniform_(self.W2)
 
-        self.b1 = nn.Parameter(torch.zeros(d_ff))
-        self.b2 = nn.Parameter(torch.zeros(d_in))
-
         self.gelu = nn.GELU()
 
+        self.use_bias = bias
+        if bias:
+            self.b1 = nn.Parameter(torch.zeros(d_ff))
+            self.b2 = nn.Parameter(torch.zeros(d_in))
+        else:
+            self.register_parameter('b1', None)
+            self.register_parameter('b2', None)
+
     def forward(self, x):
-        x = x @ self.W1 + self.b1   # [B, S, d_in] @ [d_in, d_ff] = [B, S, d_ff]
+        x = x @ self.W1   # [B, S, d_in] @ [d_in, d_ff] = [B, S, d_ff]
+        if self.use_bias:
+            x += self.b1
         x = self.gelu(x)
 
-        x = x @ self.W2 + self.b2   # [B, S, d_ff] @ [d_ff, d_in] = [B, S, d_in]
+        x = x @ self.W2   # [B, S, d_ff] @ [d_ff, d_in] = [B, S, d_in]
+        if self.use_bias:
+            x += self.b2
 
         return x
