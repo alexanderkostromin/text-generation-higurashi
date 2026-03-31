@@ -315,7 +315,7 @@ class HandmadeGPTModel(nn.Module):
         pos_indices = torch.arange(seq_len, device=in_idx.device)
         pos_emb = self.pos_emb(pos_indices)
 
-        x = tok_emb + pos_emb 
+        x = tok_emb + pos_emb
         x = self.dropout_emb(x)
 
         x = self.trfdec_blocks(x)
