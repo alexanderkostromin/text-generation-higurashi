@@ -2,7 +2,7 @@ import torch
 import pytest
 from scripts.models import (HandmadeRNN, HandmadeLSTM, HandmadeCasualAttention,
                             HandmadeMutiHeadAttention, HandmadeLayerNorm, HandmadeFeedForward,
-                            HandmadeTrfDecBlock)
+                            HandmadeTrfDecBlock, HandmadeGPTModel)
 
 
 @pytest.mark.parametrize('vocab_size, hidden_size, emb_dim, batch_size, seq_len', [
@@ -78,11 +78,15 @@ def test_handmadeff(batch_size, seq_len, d_in):
     assert res.shape == (batch_size, seq_len, d_in)
 
 
-@pytest.mark.parametrize('batch_size, seq_len, d_in, context_len, num_heads, bias', [
-    (2, 100, 10, 150, 5, False)
+@pytest.mark.parametrize('batch_size, seq_len, d_in, context_len, num_heads, bias_mha, bias_ff', [
+    (2, 100, 10, 150, 5, False, False)
 ])
-def test_handmadetrfdecblc(batch_size, seq_len, d_in, context_len, num_heads, bias):
-    decblock = HandmadeTrfDecBlock(d_in, context_len, num_heads, bias=bias)
+def test_handmadetrfdecblc(batch_size, seq_len, d_in, context_len, num_heads, bias_mha, bias_ff):
+    decblock = HandmadeTrfDecBlock(d_in,
+                                   context_len,
+                                   num_heads,
+                                   bias_mha=bias_mha,
+                                   bias_ff=bias_ff)
     x = torch.randn((batch_size, seq_len, d_in))
     output = decblock(x)
 
@@ -97,3 +101,61 @@ def test_handmadetrfdecblc_invalid_dims():
         HandmadeTrfDecBlock(d_in=d_in, context_length=150, num_heads=num_heads)
 
     assert f"d_in ({d_in}) должен делится на num_heads({num_heads})" in str(excinfo.value)
+
+
+@pytest.fixture
+def gpt_config():
+    return {
+        "vocab_size": 50,
+        "emb_dim": 32,
+        "context_length": 128,
+        "num_heads": 4,
+        "expansion_coef": 4,
+        "n_layers": 2,
+        "bias_mha": True,
+        "bias_head": False
+    }
+
+
+def test_gpt_output_shape(gpt_config):
+    model = HandmadeGPTModel(**gpt_config)
+
+    batch_size = 2
+    seq_len = 16
+    x = torch.randint(0, gpt_config["vocab_size"], (batch_size, seq_len))
+
+    logits = model(x)
+
+    expected_shape = (batch_size, seq_len, gpt_config["vocab_size"])
+    assert logits.shape == expected_shape, f"Неверная форма выхода: {logits.shape}"
+
+
+def test_gpt_over_context_error(gpt_config):
+    model = HandmadeGPTModel(**gpt_config)
+
+    x = torch.randint(0, gpt_config["vocab_size"], (1, gpt_config["context_length"] + 2))
+
+    with pytest.raises(AssertionError):
+        model(x)
+
+
+def test_gpt_parameter_count(gpt_config):
+    model = HandmadeGPTModel(**gpt_config)
+
+    for name, param in model.named_parameters():
+        assert param.requires_grad, f"Параметр {name} не обучаем!"
+
+
+def test_gpt_device_moving(gpt_config):
+    if torch.backends.mps.is_available():
+        device = 'mps'
+    elif torch.cuda.is_available():
+        device = 'cuda'
+    else:
+        device = 'cpu'
+    model = HandmadeGPTModel(**gpt_config).to(device)
+
+    x = torch.randint(0, gpt_config["vocab_size"], (1, 8)).to(device)
+    logits = model(x)
+
+    assert logits.device.type == device

@@ -231,7 +231,8 @@ class HandmadeTrfDecBlock(nn.Module):
                  num_heads,
                  dropout_mha=0.5,
                  dropout=0.5,
-                 bias=False,
+                 bias_mha=False,
+                 bias_ff=False,
                  expansion_coef=4):
         super().__init__()
         if d_in % num_heads != 0:
@@ -242,8 +243,8 @@ class HandmadeTrfDecBlock(nn.Module):
                                              context_length,
                                              num_heads,
                                              dropout_mha,
-                                             bias)
-        self.ff = HandmadeFeedForward(d_in, expansion_coef, bias)
+                                             bias_mha)
+        self.ff = HandmadeFeedForward(d_in, expansion_coef, bias_ff)
         self.norm1 = HandmadeLayerNorm(d_in)
         self.norm2 = HandmadeLayerNorm(d_in)
         self.dropout = nn.Dropout(dropout)
@@ -262,3 +263,63 @@ class HandmadeTrfDecBlock(nn.Module):
         x = x + shortcut
 
         return x
+
+
+class HandmadeGPTModel(nn.Module):
+    def __init__(self,
+                 context_length,
+                 vocab_size,
+                 emb_dim,
+                 num_heads,
+                 expansion_coef,
+                 n_layers,
+                 bias_head=False,
+                 dropout_mha=0.5,
+                 dropout_trf=0.5,
+                 dropout=0.5,
+                 bias_mha=False,
+                 bias_ff=False,
+                 ):
+        super().__init__()
+        self.context_length = context_length
+
+        self.tok_emb = nn.Embedding(vocab_size, emb_dim)
+        self.pos_emb = nn.Embedding(context_length, emb_dim)
+        self.dropout_emb = nn.Dropout(dropout)
+
+        self.trfdec_blocks = nn.Sequential(*[
+            HandmadeTrfDecBlock(
+                d_in=emb_dim,
+                context_length=context_length,
+                num_heads=num_heads,
+                dropout_mha=dropout_mha,
+                dropout=dropout_trf,
+                bias_mha=bias_mha,
+                bias_ff=bias_ff,
+                expansion_coef=expansion_coef
+            ) for _ in range(n_layers)
+        ])
+
+        self.final_norm = HandmadeLayerNorm(emb_dim)
+        self.out_head = nn.Linear(emb_dim, vocab_size, bias=bias_head)
+
+    def forward(self, in_idx):
+        batch_size, seq_len = in_idx.shape
+
+        assert seq_len <= self.context_length, (f'Входная последовательность ({seq_len})'
+                                                'превышает максимальный контекст модели '
+                                                f'({self.context_length})')
+
+        tok_emb = self.tok_emb(in_idx)
+
+        pos_indices = torch.arange(seq_len, device=in_idx.device)
+        pos_emb = self.pos_emb(pos_indices)
+
+        x = tok_emb + pos_emb 
+        x = self.dropout_emb(x)
+
+        x = self.trfdec_blocks(x)
+        x = self.final_norm(x)
+        logits = self.out_head(x)
+
+        return logits
